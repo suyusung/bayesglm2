@@ -159,10 +159,13 @@ bglm <- function (formula, family = gaussian, data, weights, subset,
 ## lm.fit's shape, from our own pivoted-QR kernel.  Same tolerance
 ## (1e-7) as lm.fit so rank decisions -- which columns are declared
 ## aliased -- match it exactly (pinned by tests/qr-kernel-vs-lm-fit.R).
-bglm_qr_solve <- function(X, y, tol = 1e-7) {
+bglm_qr_solve <- function(X, y, tol = 1e-7, w = NULL) {
     X <- as.matrix(X); storage.mode(X) <- "double"
     y <- as.vector(y); storage.mode(y) <- "double"
-    r <- .Call(C_bglm_qrls, X, y, tol)   # coef, effects, residuals, rank, qr, qraux, pivot
+    if (!is.null(w)) {
+        w <- as.vector(w); storage.mode(w) <- "double"
+    }
+    r <- .Call(C_bglm_qrls, X, y, tol, w)  # coef, effects, residuals, rank, qr, qraux, pivot
     rank <- r[[4]]
     coef <- r[[1]]; nms <- colnames(X)
     ## lm.fit (R >= 4.3) reports NA, not 0, for aliased columns:
@@ -246,15 +249,22 @@ bglm.fit <- function (x, y, weights = rep(1, nobs), start = NULL,
     # prior is scaled by the spread of the predictors and of the
     # response, so those spreads are computed with the weights.
     wts <- if (is.null(weights)) rep.int(1, nobs) else weights
+    swts <- sum(wts)
     wtd.sd <- function(v) {
-        keep <- !is.na(v)
-        v <- v[keep]
-        w <- wts[keep]
-        if (length(v) < 2L || sum(w) <= 1) {
+        if (anyNA(v)) {
+            keep <- !is.na(v)
+            v <- v[keep]
+            w <- wts[keep]
+            sw <- sum(w)
+        } else {
+            w <- wts
+            sw <- swts
+        }
+        if (length(v) < 2L || sw <= 1) {
             return(sd(v))
         }
-        m <- sum(w * v)/sum(w)
-        sqrt(sum(w * (v - m)^2)/(sum(w) - 1))
+        m <- sum(w * v)/sw
+        sqrt(sum(w * (v - m)^2)/(sw - 1))
     }
     if (scaled) {
         if (family$family == "gaussian") {
@@ -267,8 +277,23 @@ bglm.fit <- function (x, y, weights = rep(1, nobs), start = NULL,
         }
         for (j in 1:nvars) {
             x.obs <- x[,j]
-            x.obs <- x.obs[!is.na(x.obs)]
-            num.categories <- length(unique(x.obs))
+            if (anyNA(x.obs)) x.obs <- x.obs[!is.na(x.obs)]
+            # the prior only distinguishes < 2, == 2, > 2 distinct
+            # values; a capped min/max scan decides that without the
+            # O(n) hash table of length(unique(.)) (unique() treats
+            # -0 and 0 as one value, same as ==)
+            if (length(x.obs) < 2L) {
+                num.categories <- length(x.obs)
+            } else {
+                mn <- min(x.obs)
+                mx <- max(x.obs)
+                num.categories <- if (mn == mx)
+                    1L
+                else if (all(x.obs == mn | x.obs == mx))
+                    2L
+                else
+                    3L
+            }
             x.scale <- 1
             if (num.categories == 2L) {
                 x.scale <- max(x.obs) - min(x.obs)
@@ -361,6 +386,16 @@ bglm.fit <- function (x, y, weights = rep(1, nobs), start = NULL,
         #======================================
         prior.sd <- prior.scale
 
+        ## the augmented design is constant across EM iterations: the
+        ## data block is x, the p prior pseudo-rows are the identity
+        ## (the intercept row carrying the weighted predictor means).
+        ## Built once; the per-iteration row weighting is fused into
+        ## the QR kernel.
+        x.star <- rbind(x, diag(NCOL(x)))
+        if (intercept && scaled) {
+            x.star[nobs + 1,] <- colSums(x * wts)/sum(wts)
+        }
+
         #=====================================
         dispersion <- ifelse((family$family %in% c("poisson", "binomial")),
             1, var(y)/10000)
@@ -371,16 +406,17 @@ bglm.fit <- function (x, y, weights = rep(1, nobs), start = NULL,
         coef <- rep(NA_real_, NCOL(x))
         dev <- devold
         for (iter in 1L:control$maxit) {
-            good <- weights > 0
-            varmu <- variance(mu)[good]
+            good1 <- weights > 0
+            vm <- variance(mu)
+            varmu <- vm[good1]
             if (anyNA(varmu))
                 stop("NAs in V(mu)")
             if (any(varmu == 0))
                 stop("0s in V(mu)")
             mu.eta.val <- mu.eta(eta)
-            if (any(is.na(mu.eta.val[good])))
+            if (any(is.na(mu.eta.val[good1])))
                 stop("NAs in d(mu)/d(eta)")
-            good <- (weights > 0) & (mu.eta.val != 0)
+            good <- good1 & (mu.eta.val != 0)
             if (all(!good)) {
                 conv <- FALSE
                 warning(gettextf("no observations informative at iteration %d",
@@ -388,29 +424,25 @@ bglm.fit <- function (x, y, weights = rep(1, nobs), start = NULL,
                 break
             }
             z <- (eta - offset)[good] + (y - mu)[good]/mu.eta.val[good]
-            w <- sqrt((weights[good] * mu.eta.val[good]^2)/
-                variance(mu)[good])
-            ngoodobs <- as.integer(nobs - sum(!good))
+            w <- sqrt((weights[good] * mu.eta.val[good]^2)/vm[good])
 
             #======================
             #  data augmentation
             #======================
             # one prior pseudo-row per coefficient (the scale-mixture
-            # representation of the t); with scaled priors the prior
-            # for the (unpenalized-by-centering) slope block lives at
-            # the weighted mean of the predictors, so the first
-            # identity row is replaced by the weighted means.
-            x.star <- rbind(x, diag(NCOL(x)))
-            if (intercept && scaled) {
-                x.star[nobs + 1,] <- colSums(x * wts)/sum(wts)
-            }
+            # representation of the t); the augmented design x.star is
+            # constant across iterations (built above the loop, with
+            # the intercept pseudo-row at the weighted predictor
+            # means), and the per-iteration row weights are applied
+            # inside the QR kernel -- same products, no n x p
+            # temporaries per iteration.
             z.star <- c(z, prior.mean)
             w.star <- c(w, sqrt(dispersion)/prior.sd)
-
-            good.star <- c(good, rep(TRUE, NCOL(x)))
-            ngoodobs.star <- ngoodobs + NCOL(x)
-            fit <- bglm_qr_solve(x.star[good.star, , drop = FALSE] * w.star,
-                z.star * w.star)
+            Xs <- if (all(good))
+                x.star
+            else rbind(x[good, , drop = FALSE],
+                x.star[nobs + seq_len(NCOL(x)), , drop = FALSE])
+            fit <- bglm_qr_solve(Xs, z.star, w = w.star)
             if (any(!is.finite(fit$coefficients))) {
                 # The prior's pseudo-rows carry no weight here -- a
                 # prior flat enough that the augmented design is
@@ -693,7 +725,7 @@ bglm.mle.fit <- function(x, y, weights = rep(1, nobs), offset = rep(0, nobs),
         }
         z <- (eta - offset)[good] + (y - mu)[good] / mu.eta.val[good]
         w <- sqrt((weights[good] * mu.eta.val[good]^2) / varmu)
-        fit <- bglm_qr_solve(x[good, , drop = FALSE] * w, z * w)
+        fit <- bglm_qr_solve(x[good, , drop = FALSE], z, w = w)
         coefs <- fit$coefficients
         ## aliased columns: lm.fit reports NA; iterate on 0 for them
         coefs[is.na(coefs)] <- 0

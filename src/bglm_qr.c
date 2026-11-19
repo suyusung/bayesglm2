@@ -20,6 +20,11 @@
  *   qr         n x p: R in the upper triangle, Householder below
  *   qraux      the p tau factors
  *   pivot      1-based column pivot
+ *
+ * W (nullable): per-row weights.  When non-NULL the solve runs on
+ * diag(w) %*% X, diag(w) %*% y with the scaling fused into the
+ * work-array copy -- the same double multiplications, in one pass,
+ * no intermediate n x p allocation.
  * ===================================================================== */
 
 #include <R.h>
@@ -27,7 +32,7 @@
 #include <R_ext/Applic.h>    /* F77_NAME(dqrls): the lm.fit backend */
 #include <string.h>
 
-SEXP bglm_qrls(SEXP X, SEXP y, SEXP Tol)
+SEXP bglm_qrls(SEXP X, SEXP y, SEXP Tol, SEXP W)
 {
     if (!isMatrix(X) || !isReal(X) || !isReal(y) || !isReal(Tol))
         error("'X', 'y' and 'Tol' must be double");
@@ -37,33 +42,56 @@ SEXP bglm_qrls(SEXP X, SEXP y, SEXP Tol)
     if (n == 0 || p == 0) error("empty design");
     double tol = REAL(Tol)[0];
     if (!R_FINITE(tol) || tol <= 0.0) error("'Tol' must be a positive finite number");
+    int weighted = !isNull(W);
+    if (weighted && (!isReal(W) || length(W) != n))
+        error("'w', if given, must be a double vector of length nrow(X)");
+    double *wp = weighted ? REAL(W) : NULL;
 
     for (R_xlen_t i = 0; i < XLENGTH(X); i++)
         if (!R_FINITE(REAL(X)[i])) error("NA/NaN/Inf in 'X'");
     for (R_xlen_t i = 0; i < XLENGTH(y); i++)
         if (!R_FINITE(REAL(y)[i])) error("NA/NaN/Inf in 'y'");
+    if (weighted)
+        for (R_xlen_t i = 0; i < XLENGTH(W); i++)
+            if (!R_FINITE(wp[i])) error("NA/NaN/Inf in 'w'");
 
     SEXP Xwork, ywork, coef, residuals, effects, qraux, pivot, rank_, ans;
     PROTECT(Xwork = allocMatrix(REALSXP, n, p));
-    memcpy(REAL(Xwork), REAL(X), (R_xlen_t)n * p * sizeof(double));
     PROTECT(ywork = allocVector(REALSXP, n));
-    memcpy(REAL(ywork), REAL(y), (R_xlen_t)n * sizeof(double));
     PROTECT(coef = allocVector(REALSXP, p));
     PROTECT(residuals = allocVector(REALSXP, n));
-    memcpy(REAL(residuals), REAL(y), (R_xlen_t)n * sizeof(double));
     PROTECT(effects = allocVector(REALSXP, n));
     PROTECT(qraux = allocVector(REALSXP, p));
     PROTECT(pivot = allocVector(INTSXP, p));
     int *ip = INTEGER(pivot);
-    for (int j = 0; j < p; j++) ip[j] = j + 1;  /* dqrls reads jpvt as input */
     PROTECT(rank_ = allocVector(INTSXP, 1));
+
+    /* copy into the work arrays; with weights, fuse the per-row
+     * scaling (X_i * w_i, y_i * w_i) into the copy -- same double
+     * multiplications in the same order as X * w %*% ... in R, one
+     * pass instead of an extra n x p allocation */
+    double *xw = REAL(Xwork), *x = REAL(X), *yw = REAL(ywork), *yv = REAL(y),
+           *res = REAL(residuals);
+    if (weighted) {
+        for (R_xlen_t i = 0; i < (R_xlen_t)n * p; i++)
+            xw[i] = x[i] * wp[i % n];
+        for (R_xlen_t i = 0; i < (R_xlen_t)n; i++) {
+            yw[i] = yv[i] * wp[i];
+            res[i] = yw[i];
+        }
+    } else {
+        memcpy(xw, x, (R_xlen_t)n * p * sizeof(double));
+        memcpy(yw, yv, (R_xlen_t)n * sizeof(double));
+        memcpy(res, yv, (R_xlen_t)n * sizeof(double));
+    }
+    for (int j = 0; j < p; j++) ip[j] = j + 1;  /* dqrls reads jpvt as input */
 
     double rtol = tol;
     double *work = (double *) R_alloc(2 * p, sizeof(double));
 
     /* identical call shape to Cdqrls in src/library/stats/src/lm.c */
-    F77_NAME(dqrls)(REAL(Xwork), &n, &p, REAL(ywork), &ny, &rtol,
-                    REAL(coef), REAL(residuals), REAL(effects),
+    F77_NAME(dqrls)(xw, &n, &p, yw, &ny, &rtol,
+                    REAL(coef), res, REAL(effects),
                     INTEGER(rank_), ip, REAL(qraux), work);
 
     PROTECT(ans = allocVector(VECSXP, 7));
@@ -79,7 +107,7 @@ SEXP bglm_qrls(SEXP X, SEXP y, SEXP Tol)
 }
 
 static const R_CallMethodDef callMethods[] = {
-    {"bglm_qrls", (DL_FUNC) &bglm_qrls, 3},
+    {"bglm_qrls", (DL_FUNC) &bglm_qrls, 4},
     {NULL, NULL, 0}
 };
 

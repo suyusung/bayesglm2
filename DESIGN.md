@@ -90,6 +90,27 @@ get(), so they must stay exported under those exact names.
   name is also a field -- b$x partial-matched b$xlevels (empty for
   continuous predictors) and model.matrix.bglm silently returned
   list(). Use object[["name"]].
+* Pitfall: never subset the (nobs + p)-row augmented design x.star
+  with an nobs-length logical -- logical subsetting RECYCLES (a
+  length-n logical on n+p rows wraps around, silently selecting
+  wrong rows), it does not error. Subset the data block from x and
+  the pseudo-row block by row index, or build a full-length
+  good.star first.
+* Performance (inst/bench/bench-vs-arm.R, 2026-11-19): 1.1-1.3x
+  arm::bayesglm, coefficients bit-identical. The wins are all
+  constant-factor and preserve the exact float sequence:
+  (1) x.star is built once outside the EM loop (it never changes);
+  (2) per-row weights w.star are applied INSIDE the QR kernel's
+      work-array copy (bglm_qrls's W argument) -- same products,
+      no n x p temporary per iteration;
+  (3) variance(mu) computed once per iteration (was called twice);
+  (4) the 2-/many-categories test for prior scaling uses capped
+      min/max scans instead of length(unique(.));
+  (5) wtd.sd skips the NA-filter passes when there are no NAs.
+  Do not "optimize" by replacing the QR with Cholesky updates or
+  reusing factorizations across iterations: the kernel's agreement
+  with lm.fit is bit-for-bit and any change in flop order breaks
+  the parity contract.
 
 ## Engine acceptance gate (all passing, verified 2026-11-19)
 * tests/qr-kernel-vs-lm-fit.R        -- kernel vs lm.fit
