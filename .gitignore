@@ -1,6 +1,8 @@
 src/*.o
 src/*.so
 src/*.o.bak
+src/*.dll
+src/symbols.rds
 *~
 ..Rcheck/
 *.tar.gz
