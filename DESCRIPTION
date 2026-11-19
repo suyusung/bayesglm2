@@ -1,0 +1,18 @@
+Package: bayesglm2
+Type: Package
+Title: A From-Scratch Bayesian Generalized Linear Model Engine
+Version: 0.0.1
+Date: 2026-11-19
+Authors@R: c(person("Yu-Sung", "Su", role = c("aut", "cre"),
+             email = "suyusung@tsinghua.edu.cn",
+             comment = c(ORCID = "0000-0001-5021-8209")))
+Description: A rewrite of arm's bayesglm that does not build on glm() or
+    glm.fit().  The design-matrix layer (model.matrixBayes and the
+    contr.bayes.* contrast generators) is written clean and stands on its
+    own; the penalized-IRLS engine and its C core follow.
+License: GPL (>= 2)
+Depends: R (>= 3.5.0)
+Imports: stats
+Suggests: arm (>= 1.15-4)
+Encoding: UTF-8
+NeedsCompilation: yes

@@ -1,0 +1,31 @@
+useDynLib(bayesglm2, .registration = TRUE, .fixes = "C_")
+
+export(bglm)
+export(bglm.fit)
+export(bglm_design)
+export(model.matrixBayes)
+export(contr.treatment.full)
+export(contr.poly.full)
+export(contr.bayes.unordered)
+export(contr.bayes.ordered)
+
+S3method(coef,bglm)
+S3method(vcov,bglm)
+S3method(logLik,bglm)
+S3method(AIC,bglm)
+S3method(nobs,bglm)
+S3method(df.residual,bglm)
+S3method(model.matrix,bglm)
+S3method(model.frame,bglm)
+S3method(predict,bglm)
+S3method(print,bglm)
+S3method(summary,bglm)
+S3method(print,summary.bglm)
+
+importFrom(stats, terms, terms.formula, delete.response, model.frame,
+    model.matrix, model.matrix.default, model.response, model.weights,
+    model.offset, model.extract, is.empty.model, .getXlevels,
+    .checkMFClasses, glm.control, family, napredict, "contrasts<-",
+    coef, vcov, logLik, AIC, nobs, df.residual, predict,
+    dbinom, dt, pnorm, pt, gaussian, sd, var, as.formula, na.pass)
+importFrom(utils, globalVariables)
