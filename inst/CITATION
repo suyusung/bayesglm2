@@ -1,0 +1,51 @@
+bibentry(
+  bibtype = "Manual",
+  title = "{bayesglm2}: A From-Scratch Bayesian Generalized Linear Model Engine",
+  author = c(person(given = "Yu-Sung", family = "Su",
+                    email = "suyusung@tsinghua.edu.cn")),
+  year = "2026",
+  note = "R package version 0.0.1",
+  url = "https://github.com/suyusung/bayesglm2",
+  textVersion = paste(
+    "Su, Y.-S. (2026). bayesglm2: A From-Scratch Bayesian Generalized",
+    "Linear Model Engine. R package version 0.0.1.",
+    "https://github.com/suyusung/bayesglm2"
+  )
+)
+
+bibentry(
+  bibtype = "Article",
+  title = "A weakly informative default prior distribution for logistic and other regression models",
+  author = c(person("Andrew", "Gelman"),
+             person("Alessandra", "Jakulin"),
+             person("Mario", "L. Pittau"),
+             person("Yu-Sung", "Su")),
+  journal = "Bayesian Analysis",
+  year = "2008",
+  volume = "3",
+  number = "4",
+  pages = "1291--1312",
+  doi = "10.1214/08-BA338"
+)
+
+bibentry(
+  bibtype = "Article",
+  title = "Scaling regression inputs by dividing by two standard deviations",
+  author = person("Andrew", "Gelman"),
+  journal = "Statistics in Medicine",
+  year = "2008",
+  volume = "27",
+  number = "15",
+  pages = "2865--2873",
+  doi = "10.1002/sim.3107"
+)
+
+bibentry(
+  bibtype = "Book",
+  title = "Data Analysis Using Regression and Multilevel/Hierarchical Models",
+  author = c(person("Andrew", "Gelman"),
+             person("Jennifer", "Hill")),
+  publisher = "Cambridge University Press",
+  address = "Cambridge, UK",
+  year = "2007"
+)

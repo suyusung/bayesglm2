@@ -129,6 +129,28 @@ bglm.fit(x, y, weights = rep(1, nobs), start = NULL,
   coefficients are reported \code{NA}, as \code{glm} does.  Nothing
   here calls \code{\link[stats]{glm}} or \code{glm.fit}.
 }
+\references{
+  The default priors and their scaling follow:
+
+  Gelman, A., Jakulin, A., Pittau, M. L., and Su, Y.-S. (2008). A
+  weakly informative default prior distribution for logistic and other
+  regression models. \emph{Bayesian Analysis}, 3(4), 1291--1312.  The
+  scaled-t (Cauchy at the default df = 1) defaults -- prior scale 2.5
+  for coefficients and 10 for the intercept, on predictors scaled by
+  two standard deviations -- come from this paper.
+
+  Gelman, A. (2008). Scaling regression inputs by dividing by two
+  standard deviations. \emph{Statistics in Medicine}, 27(15),
+  2865--2873.  Justifies the \code{scaled = TRUE} prior scaling by
+  \code{2 * sd(x)} of the predictors (and the analogous response
+  scaling for the gaussian family).
+
+  Gelman, A., and Hill, J. (2007). \emph{Data Analysis Using
+  Regression and Multilevel/Hierarchical Models}.  Cambridge
+  University Press.  Chapter 9 motivates weakly informative priors for
+  GLMs; the engine reproduces the estimator of \code{arm::bayesglm}
+  from the companion package \pkg{arm}.
+}
 \examples{
 set.seed(1)
 n <- 100
